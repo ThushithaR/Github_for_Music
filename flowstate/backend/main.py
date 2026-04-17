@@ -26,7 +26,7 @@ app.mount("/audio", StaticFiles(directory="audio"), name="audio")
 
 
 @app.post("/capture")
-async def capture(file: UploadFile = File(...)):
+async def capture(file: UploadFile = File(...), parent_id: str = None):
     uid = str(uuid.uuid4())
 
     webm_path = f"{AUDIO_DIR}/{uid}.webm"
@@ -42,10 +42,13 @@ async def capture(file: UploadFile = File(...)):
     # Extract BPM
     bpm = extract_bpm(wav_path)
 
-    # Store in DB
+    parents = []
+    if parent_id is not None:
+        parents = [parent_id]
+
     cursor.execute("""
         INSERT INTO nodes VALUES (?, ?, ?, ?)
-    """, (uid, wav_path, bpm, json.dumps([])))
+    """, (uid, wav_path, bpm, json.dumps(parents)))
 
     conn.commit()
 
@@ -79,6 +82,25 @@ def branch(parent_id: str):
     conn.commit()
 
     return {"id": uid}
+
+
+@app.post("/connect/{child_id}/{parent_id}")
+def connect_nodes(child_id: str, parent_id: str):
+    # Get current parents of the child node
+    cursor.execute("SELECT parents FROM nodes WHERE id = ?", (child_id,))
+    result = cursor.fetchone()
+    
+    if result:
+        current_parents = json.loads(result[0])
+        if parent_id not in current_parents:
+            current_parents.append(parent_id)
+            cursor.execute("""
+                UPDATE nodes SET parents = ? WHERE id = ?
+            """, (json.dumps(current_parents), child_id))
+            conn.commit()
+            return {"success": True, "message": f"Connected {child_id} to {parent_id}"}
+    
+    return {"success": False, "message": "Connection failed"}
 
 
 if __name__ == "__main__":
