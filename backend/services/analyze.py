@@ -2,6 +2,43 @@
 
 import librosa
 import numpy as np
+import subprocess
+import tempfile
+import os
+import traceback
+
+
+# ---------- AUDIO NORMALIZATION (FFmpeg) ----------
+def normalize_audio(input_path):
+    output_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+
+    print("\n===== DEBUG =====")
+    print("Input path:", input_path)
+    print("Exists:", os.path.exists(input_path))
+
+    if os.path.exists(input_path):
+        print("Size:", os.path.getsize(input_path))
+
+    command = [
+    r"C:\ffmpeg\ffmpeg-8.1-full_build\bin\ffmpeg.exe",
+    "-y",
+    "-i", input_path,
+    "-vn",              # ignore video streams
+    "-ac", "1",
+    "-ar", "22050",
+    "-f", "wav",
+    output_path
+]
+
+    result = subprocess.run(command, capture_output=True, text=True)
+
+    print("\n===== FFMPEG STDERR =====")
+    print(result.stderr)
+
+    if result.returncode != 0:
+        raise RuntimeError("FFmpeg conversion failed")
+
+    return output_path
 
 
 # ---------- BPM ----------
@@ -79,7 +116,7 @@ def get_key_timeline(y, sr, chunk_duration=10):
         end = start + chunk_samples
         y_chunk = y[start:end]
 
-        if len(y_chunk) < sr * 2:  # skip very short chunks
+        if len(y_chunk) < sr * 2:
             continue
 
         chroma = librosa.feature.chroma_cens(y=y_chunk, sr=sr)
@@ -127,8 +164,14 @@ def get_mood(y, sr):
 
 # ---------- MAIN ----------
 def analyze(wav_path: str) -> dict:
+    clean_path = None
+
     try:
-        y, sr = librosa.load(wav_path, sr=None)
+        # Step 1: Normalize audio via FFmpeg
+        clean_path = normalize_audio(wav_path)
+
+        # Step 2: Load safely
+        y, sr = librosa.load(clean_path, sr=None)
 
         if len(y) < sr * 1:
             return {
@@ -138,6 +181,7 @@ def analyze(wav_path: str) -> dict:
                 "key_timeline": []
             }
 
+        # Step 3: Compute features
         return {
             "bpm": get_bpm(y, sr),
             "key": get_dominant_key(y, sr),
@@ -145,14 +189,24 @@ def analyze(wav_path: str) -> dict:
             "key_timeline": get_key_timeline(y, sr)
         }
 
-    except Exception as e:
-        print(f"[analyze error] {e}")
+    except Exception:
+        print("\n[ANALYZE ERROR - FULL TRACE]")
+        traceback.print_exc()
+
         return {
             "bpm": 0.0,
             "key": "unknown",
             "mood": "chill",
             "key_timeline": []
         }
+
+    finally:
+        # Step 4: Always clean temp file
+        if clean_path and os.path.exists(clean_path):
+            try:
+                os.remove(clean_path)
+            except Exception as cleanup_error:
+                print(f"Cleanup failed: {cleanup_error}")
 
 
 # ---------- TEST ----------
