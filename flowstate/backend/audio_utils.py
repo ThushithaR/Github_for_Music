@@ -2,6 +2,7 @@ import subprocess
 import librosa
 import os
 import numpy as np
+import wave
 
 
 KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -70,6 +71,18 @@ def _get_mood_from_logic(y, sr):
 
     return "dark"
 
+
+def _get_wav_duration(path):
+    try:
+        with wave.open(path, "rb") as wav_file:
+            frame_count = wav_file.getnframes()
+            frame_rate = wav_file.getframerate()
+            if frame_rate <= 0:
+                return 0.0
+            return round(frame_count / float(frame_rate), 3)
+    except Exception:
+        return 0.0
+
 def convert_to_wav(input_path, output_path):
     # Use ffmpeg from PATH
     import shutil
@@ -97,16 +110,18 @@ def extract_bpm(path):
 def extract_audio_features(path):
     try:
         y, sr = librosa.load(path, mono=True)
+
+        duration = _get_wav_duration(path)
+
         if y is None or len(y) == 0:
             return {
                 "bpm": 0.0,
-                "duration": 0.0,
+                "duration": duration,
                 "musical_key": "Unknown",
                 "mood": "neutral",
             }
 
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-        duration = float(librosa.get_duration(y=y, sr=sr))
 
         # Use CQT chroma for stabler tonal center estimation than raw STFT chroma.
         chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
@@ -123,7 +138,7 @@ def extract_audio_features(path):
     except Exception:
         return {
             "bpm": 0.0,
-            "duration": 0.0,
+            "duration": _get_wav_duration(path),
             "musical_key": "Unknown",
             "mood": "neutral",
         }

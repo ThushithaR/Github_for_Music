@@ -1,5 +1,7 @@
 from pathlib import Path
 from datetime import datetime, timezone
+from shutil import copy2
+import wave
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
@@ -62,6 +64,47 @@ def capture_help():
         "detail": "Use POST /capture with multipart form-data field named 'file'.",
         "example_curl": "curl.exe -X POST -F \"file=@my_recording.wav;type=audio/wav\" http://127.0.0.1:8000/capture",
     }
+
+
+def _parse_iso_datetime(value: str):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _get_node_row(node_id: str):
+    return execute(
+        """
+        SELECT id, file, bpm, parents, created_at, duration, musical_key, mood
+        FROM nodes
+        WHERE id = ?
+        """,
+        (node_id,),
+    ).fetchone()
+
+
+def _copy_wav_file(source_path: Path, destination_path: Path):
+    copy2(source_path, destination_path)
+
+
+def _merge_wav_files(left_path: Path, right_path: Path, output_path: Path):
+    with wave.open(str(left_path), "rb") as left_wav, wave.open(str(right_path), "rb") as right_wav:
+        if (
+            left_wav.getnchannels() != right_wav.getnchannels()
+            or left_wav.getsampwidth() != right_wav.getsampwidth()
+            or left_wav.getframerate() != right_wav.getframerate()
+        ):
+            raise HTTPException(status_code=400, detail="WAV files must share the same audio format to merge")
+
+        with wave.open(str(output_path), "wb") as merged_wav:
+            merged_wav.setnchannels(left_wav.getnchannels())
+            merged_wav.setsampwidth(left_wav.getsampwidth())
+            merged_wav.setframerate(left_wav.getframerate())
+            merged_wav.writeframes(left_wav.readframes(left_wav.getnframes()))
+            merged_wav.writeframes(right_wav.readframes(right_wav.getnframes()))
 
 
 @app.get("/recorder")
@@ -154,6 +197,89 @@ async def capture(file: UploadFile = File(...), parent_id: str = None):
         "mood": mood,
         "created_at": created_at,
     }
+
+
+@app.post("/fork/{node_id}")
+def fork_node(node_id: str):
+    row = _get_node_row(node_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    source_file = row[1] or ""
+    if not source_file:
+        raise HTTPException(status_code=400, detail="Node has no audio file to fork")
+
+    source_path = AUDIO_DIR / Path(source_file).name
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="Source audio file not found")
+
+    new_id = str(uuid.uuid4())
+    new_path = AUDIO_DIR / f"{new_id}.wav"
+    _copy_wav_file(source_path, new_path)
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    execute(
+        """
+        INSERT INTO nodes (id, file, bpm, parents, created_at, duration, musical_key, mood)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            new_id,
+            f"audio/{new_id}.wav",
+            row[2],
+            json.dumps([node_id]),
+            created_at,
+            row[5] or 0.0,
+            row[6] or "Unknown",
+            row[7] or "neutral",
+        ),
+    )
+    commit()
+    return {"id": new_id, "source_id": node_id}
+
+
+@app.post("/merge/{left_id}/{right_id}")
+def merge_nodes(left_id: str, right_id: str):
+    left_row = _get_node_row(left_id)
+    right_row = _get_node_row(right_id)
+    if not left_row or not right_row:
+        raise HTTPException(status_code=404, detail="One or both nodes not found")
+
+    left_file = left_row[1] or ""
+    right_file = right_row[1] or ""
+    if not left_file or not right_file:
+        raise HTTPException(status_code=400, detail="Both nodes need audio files to merge")
+
+    left_path = AUDIO_DIR / Path(left_file).name
+    right_path = AUDIO_DIR / Path(right_file).name
+    if not left_path.exists() or not right_path.exists():
+        raise HTTPException(status_code=404, detail="One or both source audio files are missing")
+
+    new_id = str(uuid.uuid4())
+    merged_path = AUDIO_DIR / f"{new_id}.wav"
+    _merge_wav_files(left_path, right_path, merged_path)
+
+    features = extract_audio_features(str(merged_path))
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    execute(
+        """
+        INSERT INTO nodes (id, file, bpm, parents, created_at, duration, musical_key, mood)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            new_id,
+            f"audio/{new_id}.wav",
+            features["bpm"],
+            json.dumps([left_id, right_id]),
+            created_at,
+            features["duration"],
+            features["musical_key"],
+            features["mood"],
+        ),
+    )
+    commit()
+    return {"id": new_id, "left_id": left_id, "right_id": right_id}
 
 
 @app.get("/nodes")
@@ -269,6 +395,20 @@ def branch(parent_id: str):
 @app.post("/connect/{child_id}/{parent_id}")
 def connect_nodes(child_id: str, parent_id: str):
     # Get current parents of the child node
+    child_row = _get_node_row(child_id)
+    parent_row = _get_node_row(parent_id)
+    if not child_row or not parent_row:
+        return {"success": False, "message": "Connection failed"}
+
+    child_created_at = _parse_iso_datetime(child_row[4])
+    parent_created_at = _parse_iso_datetime(parent_row[4])
+    if child_created_at and parent_created_at and parent_created_at > child_created_at:
+        return {
+            "success": False,
+            "message": "Parent is newer than child. Fork the newer node first, then connect to the fork.",
+            "needsFork": True,
+        }
+
     result = execute("SELECT parents FROM nodes WHERE id = ?", (child_id,)).fetchone()
     
     if result:
