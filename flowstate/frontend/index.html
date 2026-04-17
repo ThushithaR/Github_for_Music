@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FlowState MVP</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        #network {
+            width: 100%;
+            height: 500px;
+            border: 1px solid #ddd;
+            background-color: #f5f5f5;
+            margin: 20px 0;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .ideas-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .idea-node {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .idea-node.root {
+            border-color: #d32f2f;
+            background: #ffebee;
+        }
+        .idea-node.branch {
+            border-color: #1976d2;
+            background: #e3f2fd;
+        }
+        .idea-node.selected-parent {
+            border-color: #4caf50;
+            background: #e8f5e9;
+        }
+        .idea-node.selected-child {
+            border-color: #ff9800;
+            background: #fff3e0;
+        }
+        audio {
+            width: 100%;
+            margin: 10px 0;
+        }
+        .status {
+            background: #e3f2fd;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        #ideas-list {
+            grid-column: 1;
+        }
+        h2 {
+            grid-column: 1 / -1;
+        }
+        h3 {
+            grid-column: 1 / -1;
+        }
+        .graph-section {
+            grid-column: 1 / -1;
+        }
+        p.info {
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🎵 FlowState MVP</h1>
+    
+    <div class="controls">
+        <button id="toggleRecordingBtn" onclick="toggleRecording()">Start Listening</button>
+        <button id="captureBtn" onclick="capture()" disabled>Capture Now</button>
+        <button id="clearBranchBtn" onclick="clearBranchSelection()" style="display:none;">Clear Branch</button>
+        <div id="recordStatus" class="status" style="display:none; margin-top: 10px;"></div>
+        <p class="info">
+            💡 <strong>Workflow:</strong> Click Start Listening once, speak anytime, and the app will keep a rolling 30s buffer. Use branch buttons to record into a branch or leave blank to create a new root idea.
+        </p>
+    </div>
+
+    <div class="waveform-container">
+        <p class="info"><strong>Live waveform:</strong> see your audio input while listening.</p>
+        <canvas id="waveformCanvas" width="1400" height="120" style="width:100%; border:1px solid #ccc; border-radius:8px; background:#121212;"></canvas>
+    </div>
+
+    <h2>🌳 Idea Evolution Graph</h2>
+    <p class="info">Nodes show your ideas. Red = root ideas. Blue = branches. <strong>Hover over a node to preview audio!</strong></p>
+    <div style="margin-bottom: 10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <button id="toggleConnectBtn" onclick="toggleConnectMode()">Start Connect Mode</button>
+        <button id="doConnectBtn" onclick="connectSelectedNodes()" style="display:none;">Connect Selected Nodes</button>
+        <button id="cancelConnectBtn" onclick="cancelConnectMode()" style="display:none;">Cancel</button>
+        <span style="font-size: 12px; color: #666;">Click parent node, then click child node.</span>
+    </div>
+    <div id="network" class="graph-section"></div>
+    
+    <div id="audioPreview" style="display: none; background: white; border: 2px solid #1976d2; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); max-width: 400px; margin-top: 20px;">
+        <strong id="previewTitle" style="font-size: 16px;"></strong>
+        <p id="previewBpm" style="margin: 5px 0;"></p>
+        <audio id="previewAudio" controls style="width: 100%; margin: 10px 0; display: none;"></audio>
+        <p id="previewStatus" style="font-size: 12px; color: #999; margin: 5px 0;"></p>
+    </div>
+
+    <h2>📝 Captured Ideas</h2>
+    <div id="ideas-list"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
