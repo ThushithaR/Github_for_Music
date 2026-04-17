@@ -31,6 +31,7 @@ export function useGoodwinsunInternal() {
   const [cmTags, setCmTags] = useState<string[]>([]);
   const [toasts, setToasts] = useState<string[]>([]);
   const [capturing, setCapturing] = useState(false);
+  const [playbackSequence, setPlaybackSequence] = useState<string[]>([]);
   
   const bufferStartRef = useRef(Date.now());
   const cpPhaseRef = useRef(0);
@@ -373,6 +374,166 @@ export function useGoodwinsunInternal() {
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  const updateClipPosition = useCallback((id: string, x: number, y: number) => {
+    setState(prev => ({
+      ...prev,
+      clips: prev.clips.map(c => c.id === id ? { ...c, x, y } : c)
+    }));
+  }, []);
+
+  const updateClipSession = useCallback((id: string, session: string) => {
+    setState(prev => ({
+      ...prev,
+      clips: prev.clips.map(c => c.id === id ? { ...c, session } : c)
+    }));
+  }, []);
+
+  const checkCycle = useCallback((startId: string, targetId: string) => {
+    // DFS from target to see if we can reach start (backwards flow)
+    const stack = [targetId];
+    const visited = new Set<string>();
+
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      if (node === startId) return true;
+      
+      if (!visited.has(node)) {
+        visited.add(node);
+        const clip = state.clips.find(c => c.id === node);
+        if (clip) {
+          if (clip.children) clip.children.forEach(c => stack.push(c));
+          if (clip.customConnections) clip.customConnections.forEach(c => stack.push(c));
+        }
+      }
+    }
+    return false;
+  }, [state.clips]);
+
+  const findPath = useCallback((sourceId: string, destId: string) => {
+    const stack: { node: string, path: string[] }[] = [{ node: sourceId, path: [sourceId] }];
+    const visited = new Set<string>();
+
+    while (stack.length > 0) {
+      const { node, path } = stack.pop()!;
+      if (node === destId) return path;
+
+      if (!visited.has(node)) {
+        visited.add(node);
+        const clip = state.clips.find(c => c.id === node);
+        if (clip) {
+          const neighbors = [...(clip.children || []), ...(clip.customConnections || [])];
+          for (const n of neighbors) {
+            if (!visited.has(n)) {
+              stack.push({ node: n, path: [...path, n] });
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }, [state.clips]);
+
+  /**
+   * Returns a Set of all node IDs that can reach `destId` by following
+   * forward edges (children + customConnections). Used to filter which
+   * outgoing neighbors are still on a valid path toward the destination,
+   * so the branch picker popup only shows up when multiple RELEVANT
+   * branches exist — not every time any node has multiple children.
+   */
+  const getNodesLeadingTo = useCallback((destId: string): Set<string> => {
+    // Build a reverse adjacency map: for each node, who points TO it?
+    const reverseAdj: Record<string, string[]> = {};
+    state.clips.forEach(c => {
+      const fwd = [...(c.children || []), ...(c.customConnections || [])];
+      fwd.forEach(tid => {
+        if (!reverseAdj[tid]) reverseAdj[tid] = [];
+        reverseAdj[tid].push(c.id);
+      });
+    });
+
+    // BFS backward from destId
+    const reachable = new Set<string>();
+    const queue = [destId];
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      if (reachable.has(node)) continue;
+      reachable.add(node);
+      (reverseAdj[node] || []).forEach(prev => queue.push(prev));
+    }
+    return reachable;
+  }, [state.clips]);
+
+  const playSequence = useCallback(async (path: string[]) => {
+    setPlaybackSequence(path);
+    for (const id of path) {
+      setState(prev => ({ ...prev, playingId: id }));
+      // 3 seconds per node simulated playback
+      await new Promise(r => setTimeout(r, 3000));
+    }
+    setState(prev => ({ ...prev, playingId: null }));
+    setPlaybackSequence([]);
+    showToast('Playback Complete');
+  }, [showToast]);
+
+  const clearPlaybackSequence = useCallback(() => {
+    setPlaybackSequence([]);
+    setState(prev => ({ ...prev, playingId: null }));
+  }, []);
+
+  const autoWireNode = useCallback((nodeId: string, targetSession: string, prevId: string | null, nextId: string | null) => {
+    setState(prev => ({
+      ...prev,
+      clips: prev.clips.map(c => {
+        let updated = { ...c };
+        
+        // 1. Update session of dropped node
+        if (c.id === nodeId) {
+          updated.session = targetSession;
+          // Wire outgoing to nextId
+          if (nextId) updated.customConnections = [...(updated.customConnections || []).filter(x => x !== nextId), nextId];
+        }
+        
+        // 2. Break old connection between prevId -> nextId
+        if (prevId && nextId && c.id === prevId) {
+          updated.customConnections = (updated.customConnections || []).filter(x => x !== nextId);
+        }
+
+        // 3. Wire prevId to the dropped node
+        if (prevId && c.id === prevId) {
+          updated.customConnections = [...(updated.customConnections || []).filter(x => x !== nodeId), nodeId];
+        }
+
+        return updated;
+      })
+    }));
+    showToast(`Fragment ${nodeId} successfully wired into ${targetSession}`);
+  }, [showToast]);
+
+  const toggleCustomConnection = useCallback((sourceId: string, targetId: string) => {
+    if (checkCycle(sourceId, targetId)) {
+      showToast('ERROR: Connections must flow forward chronologically. No cycle jumps allowed!');
+      return;
+    }
+
+    setState(prev => ({
+      ...prev,
+      clips: prev.clips.map(c => {
+        if (c.id === sourceId) {
+          const connections = c.customConnections || [];
+          if (connections.includes(targetId)) {
+            // Remove connection
+            return { ...c, customConnections: connections.filter(t => t !== targetId) };
+          } else {
+            // Add connection
+            return { ...c, customConnections: [...connections, targetId] };
+          }
+        }
+        return c;
+      })
+    }));
+  }, [checkCycle, showToast]);
+
+
   const toggleEdit = useCallback(() => {
     setState(prev => ({ ...prev, isEditing: !prev.isEditing }));
   }, []);
@@ -485,6 +646,8 @@ export function useGoodwinsunInternal() {
       children: [],
       tags: [...src.tags],
       isNew: true,
+      x: src.x !== undefined ? src.x + 150 : undefined,
+      y: src.y !== undefined ? src.y + 80 : undefined,
     };
 
     setState(prev => ({
@@ -508,6 +671,48 @@ export function useGoodwinsunInternal() {
       }));
     }, 3500);
   }, [state.selectedId, state.clips, showToast]);
+
+  // Fork any clip by ID directly (used by MapView context menu — no selectedId dependency)
+  const forkClipDirect = useCallback((sourceId: string) => {
+    const src = state.clips.find(c => c.id === sourceId);
+    if (!src) return null;
+
+    let newId = generateId();
+    while (state.clips.find(c => c.id === newId)) newId = generateId();
+
+    const newSession = `${src.session} fork`;
+    const forkClip: Clip = {
+      ...src,
+      id: newId,
+      name: `${src.name || src.id} (Fork)`,
+      session: newSession,
+      ago: 'just now',
+      type: 'root',
+      parent: null,
+      children: [],
+      tags: [...src.tags],
+      isNew: true,
+      x: src.x !== undefined ? src.x + 160 : undefined,
+      y: src.y !== undefined ? src.y + 100 : undefined,
+      customConnections: [],
+    };
+
+    setState(prev => ({
+      ...prev,
+      clips: [forkClip, ...prev.clips],
+    }));
+
+    showToast(`⎇ Forked ${sourceId} → ${newId} in "${newSession}"`);
+
+    setTimeout(() => {
+      setState(prev => ({
+        ...prev,
+        clips: prev.clips.map(c => c.id === newId ? { ...c, isNew: false } : c)
+      }));
+    }, 3500);
+
+    return newId;
+  }, [state.clips, showToast]);
 
   const confirmDelete = useCallback(() => {
     if (!state.selectedId) return;
@@ -682,6 +887,15 @@ export function useGoodwinsunInternal() {
     changeRate,
     toggleDetailPlay,
     copyId,
+    updateClipPosition,
+    updateClipSession,
+    toggleCustomConnection,
+    autoWireNode,
+    findPath,
+    getNodesLeadingTo,
+    playSequence,
+    playbackSequence,
+    clearPlaybackSequence,
     
     // Overlays
     activeOverlay,
@@ -689,6 +903,7 @@ export function useGoodwinsunInternal() {
     hideOverlays,
     confirmBranch,
     confirmFork,
+    forkClipDirect,
     confirmDelete,
     confirmExport,
     
@@ -701,11 +916,11 @@ export function useGoodwinsunInternal() {
     // Shortcuts
     toggleShortcuts,
     
-    // Tags
-    setCmTags,
-    
     // Toasts
     showToast,
+    
+    // Tags
+    setCmTags,
     
     // Utilities
     getWaveform,

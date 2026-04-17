@@ -1254,6 +1254,7 @@ svg {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  position: relative;
 }
 
 .detail-section-label {
@@ -1498,10 +1499,16 @@ svg {
   flex-direction: column;
   background: var(--bg-elevated);
   border: 1px solid var(--border-mid);
-  border-radius: var(--radius-md);
-  margin: 10px 14px;
-  padding: 14px;
+  margin: 0;
+  padding: 16px 20px;
   animation: modal-up 0.15s ease;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  overflow-y: auto;
 }
 
 .panel-overlay.vis {

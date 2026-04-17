@@ -20,6 +20,9 @@ export interface Clip {
   tags: string[];
   isNew?: boolean;
   keyTimeline?: KeyTimelineChunk[];
+  x?: number;
+  y?: number;
+  customConnections?: string[]; // IDs of other clips it connects to
 }
 
 export interface ChipDefinition {
