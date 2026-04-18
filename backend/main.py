@@ -1,15 +1,19 @@
+print("THIS IS THE CORRECT MAIN.PY")
 import os
 import shutil
+import uuid
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+
+# Import the logic from your services folder
 from services.analyze import analyze
 
 app = FastAPI(title="GOODWINSUN Analysis API")
 
-# Allow requests from the Next.js frontend
+# 1. THE SECURITY GATE: This MUST be defined before any routes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],  # Allows your React app at localhost:3000 to connect
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -19,55 +23,48 @@ TEMP_DIR = "temp_audio"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 def cleanup_file(filepath: str):
+    """Deletes the temporary file after the response is sent."""
     try:
         if os.path.exists(filepath):
             os.remove(filepath)
     except Exception as e:
-        print(f"Error cleaning up file {filepath}: {e}")
+        print(f"Cleanup error: {e}")
 
-import subprocess
+# --- ROUTES ---
 
-def convert_to_wav(input_path: str) -> str:
-    """Converts input audio file to WAV using ffmpeg."""
-    output_path = input_path.rsplit('.', 1)[0] + "_converted.wav"
-    try:
-        # -y to overwrite if exists
-        subprocess.run(['ffmpeg', '-y', '-i', input_path, output_path], 
-                       check=True, capture_output=True, text=True)
-        return output_path
-    except subprocess.CalledProcessError as e:
-        print(f"FFmpeg conversion failed: {e.stderr}")
-        return input_path
-    except FileNotFoundError:
-        print("FFmpeg not found in PATH. Skipping conversion.")
-        return input_path
+@app.get("/")
+def read_root():
+    print('accessed')
+    return {"status": "Backend is running!"}
 
 @app.post("/api/analyze")
 async def analyze_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    # Save the uploaded file temporarily
-    file_path = os.path.join(TEMP_DIR, file.filename)
+    # Safely handle the filename for Windows compatibility
+    safe_filename = file.filename if file.filename else f"capture_{uuid.uuid4().hex[:4]}.webm"
+    file_path = os.path.join(TEMP_DIR, safe_filename)
     
+    # Save the incoming file from the browser
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
-    final_wav_path = file_path
-    
-    # Check if conversion is needed (simple extension check)
-    if not file.filename.lower().endswith('.wav'):
-        final_wav_path = convert_to_wav(file_path)
-        # Schedule the original file for deletion early if it was converted
-        if final_wav_path != file_path:
-            background_tasks.add_task(cleanup_file, file_path)
-            
     try:
-        # Run the analysis
-        analysis_result = analyze(final_wav_path)
-    finally:
-        # Schedule the final file for deletion after the response is sent
-        background_tasks.add_task(cleanup_file, final_wav_path)
+        # Run your Librosa + Gemini logic from analyze.py
+        analysis_result = analyze(file_path)
         
-    return analysis_result
+        # Add a unique ID for the frontend to track
+        analysis_result["id"] = uuid.uuid4().hex[:8]
+        
+        return analysis_result
+        
+    except Exception as e:
+        # Fallback in case of a crash during analysis
+        return {"error": str(e), "is_music": False}
+        
+    finally:
+        # Schedule cleanup so we don't fill your hard drive with temp files
+        background_tasks.add_task(cleanup_file, file_path)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Listen on 127.0.0.1 to match your frontend fetch call
+    uvicorn.run(app, host="127.0.0.1", port=8000)

@@ -83,6 +83,12 @@ export default function Home() {
 
   return (
     <div id="app">
+      {state.isAnalyzing && (
+        <div id="analysis-banner" style={{ position: 'fixed', top: 0, left: 0, right: 0 }}>
+          <div className="analysis-dot" />
+          DOING SEMANTIC ANALYSIS · WILL SAVE SOON
+        </div>
+      )}
       <Sidebar currentView={state.currentView} setView={setView} />
       
       <div id="main">

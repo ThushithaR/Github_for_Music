@@ -52,6 +52,9 @@ export interface AppState {
   isEditing: boolean;
   mergeTargetId: string | null;
   isMergeModalOpen: boolean;
+  playbackSequence: string[];
+  playbackSequenceIndex: number | null;
+  isAnalyzing: boolean;
 }
 
 export interface PendingCapture {

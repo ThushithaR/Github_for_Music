@@ -103,7 +103,7 @@ export default function CaptureModal() {
           </div>
           <div className="cm-field">
             <div className="cm-label">FRAGMENT NAME</div>
-            <input className="cm-input" ref={nameRef} type="text" placeholder="e.g. Birds in the park..." defaultValue="" />
+            <input className="cm-input" ref={nameRef} type="text" placeholder="e.g. Birds in the park..." defaultValue={pendingCapture.name || ''} />
           </div>
           <div className="cm-row2">
             <div className="cm-field">

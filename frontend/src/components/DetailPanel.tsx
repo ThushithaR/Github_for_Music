@@ -21,15 +21,14 @@ export default function DetailPanel({ selectedId, onClose, onSelectClip }: Detai
     activeOverlay,
     successMessage,
     hideOverlays,
-    confirmBranch,
+
     confirmFork,
     confirmDelete,
     confirmExport,
   } = useGoodwinsun();
 
   // Refs for overlay form inputs
-  const branchInstrumentRef = useRef<HTMLSelectElement>(null);
-  const branchDirectionRef = useRef<HTMLSelectElement>(null);
+
   const forkSessionRef = useRef<HTMLInputElement>(null);
   const [showAllNotes, setShowAllNotes] = useState(false);
 
@@ -76,52 +75,7 @@ export default function DetailPanel({ selectedId, onClose, onSelectClip }: Detai
           </div>
         </div>
 
-        {/* ======== BRANCH OVERLAY ======== */}
-        {activeOverlay === 'branch' && (
-          <div className="panel-overlay vis">
-            <div className="po-title">BRANCHING FROM <span style={{color: 'var(--text-primary)'}}>{selectedClip.name}</span> <span style={{opacity: 0.5, fontSize: '9px'}}>{selectedId}</span></div>
-            <div className="po-text">Create a new derived fragment from this idea. Choose the instrument and creative direction.</div>
-            <div className="po-row">
-              <div className="po-label">INSTRUMENT</div>
-              <select className="po-sel" ref={branchInstrumentRef} defaultValue={selectedClip.instrument}>
-                <option>guitar</option>
-                <option>piano</option>
-                <option>synth</option>
-                <option>drums</option>
-                <option>vocals</option>
-                <option>bass</option>
-                <option>keys + pad</option>
-                <option>bass + synth</option>
-                <option>guitar + bass</option>
-                <option>violin + pad</option>
-              </select>
-            </div>
-            <div className="po-row">
-              <div className="po-label">DIRECTION</div>
-              <select className="po-sel" ref={branchDirectionRef}>
-                <option value="continuation">continuation — same session, evolve the idea</option>
-                <option value="variation">variation — explore a different take</option>
-                <option value="experiment">experiment — new session, wild exploration</option>
-              </select>
-            </div>
-            <div style={{
-              background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-              padding: '8px 10px', marginBottom: '10px', fontFamily: 'var(--font-mono)', fontSize: '9px',
-              color: 'var(--text-muted)', lineHeight: '1.7'
-            }}>
-              <strong style={{color: 'var(--text-secondary)'}}>Source:</strong> {selectedClip.name} · {selectedClip.bpm} BPM · {selectedClip.key} · {selectedClip.mood}
-            </div>
-            <div className="po-btns">
-              <button className="po-btn" onClick={hideOverlays}>CANCEL</button>
-              <button className="po-btn primary" onClick={() => {
-                confirmBranch(
-                  branchInstrumentRef.current?.value || selectedClip.instrument,
-                  branchDirectionRef.current?.value || 'continuation'
-                );
-              }}>CREATE BRANCH</button>
-            </div>
-          </div>
-        )}
+
 
         {/* ======== FORK OVERLAY ======== */}
         {activeOverlay === 'fork' && (
@@ -368,13 +322,7 @@ export default function DetailPanel({ selectedId, onClose, onSelectClip }: Detai
         </div>
         <div className="detail-section">
           <div className="actions-grid">
-            <button 
-              className={`action-btn primary ${activeOverlay === 'branch' ? 'active-m' : ''}`}
-              onClick={() => handleAction('branch')} 
-              title="Create a new idea derived from this one"
-            >
-              BRANCH
-            </button>
+
             <button 
               className={`action-btn ${activeOverlay === 'fork' ? 'active-m' : ''}`}
               onClick={() => handleAction('fork')} 

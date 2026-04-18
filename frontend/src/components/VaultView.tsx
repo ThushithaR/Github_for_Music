@@ -2,6 +2,7 @@
 
 import { useGoodwinsun } from '@/context/GoodwinsunContext';
 import { getWaveform } from '@/utils/helpers';
+import LiveVisualizer from './LiveVisualizer';
 
 export default function VaultView() {
   const { 
@@ -103,21 +104,60 @@ export default function VaultView() {
           ))}
         </div>
         <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-          <div id="live-chip" onClick={() => !audio.isListening && audio.startListening()} style={{cursor: 'pointer'}}>
+          <div id="live-chip" onClick={() => {
+            if (audio.isListening) {
+              audio.stopListening();
+            } else {
+              audio.startListening();
+            }
+          }} style={{cursor: 'pointer'}}>
             <div className="live-dot" style={{ backgroundColor: audio.isListening ? 'var(--amber)' : 'var(--text-muted)' }}></div>
-            {audio.isListening ? 'LIVE · BUFFERING 60s' : 'MIC OFF (CLICK TO ENABLE)'}
-            <div className="lctt">Circular 60-second audio buffer. Always recording.<br/>Press Capture to save.</div>
+            {audio.isListening 
+              ? (audio.isSpeaking ? '🎤 RECORDING...' : '🎧 BUFFERING (Waiting for sound)...') 
+              : 'MIC OFF (CLICK TO ENABLE)'}
+            <div className="lctt">Voice-activated ambient capture with 30s rolling buffer.<br/>Sound above threshold auto-records. 5s silence saves fragment.</div>
           </div>
           {audio.isListening && (
             <div id="buffer-bar-wrap">
-              <div id="buffer-bar-label">BUFFER</div>
+              <div id="buffer-bar-label">BUFFER {audio.bufferLength}s / 30s</div>
               <div id="buffer-bar-track">
-                <div id="buffer-bar-fill" style={{width: '100%'}}></div>
+                <div id="buffer-bar-fill" style={{
+                  width: `${Math.min((audio.bufferLength / 30) * 100, 100)}%`,
+                  background: audio.bufferLength >= 30 ? '#3D7A5C' : undefined
+                }}></div>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Voice-Activated Controls & Live Visualizer */}
+      {audio.isListening && (
+        <div style={{ padding: '0 16px 4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ fontSize: '9px', color: audio.isSpeaking ? 'var(--amber)' : 'var(--text-muted)', fontWeight: 'bold', fontFamily: 'var(--font-mono)' }}>
+                {audio.isSpeaking ? '🎤 RECORDING...' : '🎧 BUFFERING...'}
+              </span>
+              <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Thresh: {audio.threshold}</span>
+            </div>
+            
+            {/* Volume Meter */}
+            <div style={{ width: '100%', height: '4px', background: 'var(--bg)', borderRadius: '2px', overflow: 'hidden', marginBottom: '6px' }}>
+              <div ref={audio.volumeMeterRef} style={{ height: '100%', width: '0%', transition: 'width 0.05s ease-out', borderRadius: '2px' }}></div>
+            </div>
+
+            {/* Threshold Slider */}
+            <input 
+              type="range" min="5" max="50" 
+              value={audio.threshold} onChange={(e) => audio.setThreshold(Number(e.target.value))}
+              style={{ width: '100%', height: '14px', cursor: 'pointer', accentColor: '#D4883A' }}
+            />
+          </div>
+
+          <LiveVisualizer analyser={audio.analyserNode} bufferLength={audio.bufferLength} />
+        </div>
+      )}
 
     {/* Merge Banner */}
     {state.mergeMode && (
@@ -168,12 +208,7 @@ export default function VaultView() {
       >
         ROOTS <span className="tab-badge">{tabCounts.roots || 3}</span>
       </button>
-      <button 
-        className={`tab-btn ${state.activeTab === 'branches' ? 'active' : ''}`} 
-        onClick={() => setTab('branches')}
-      >
-        BRANCHES <span className="tab-badge">{tabCounts.branches || 4}</span>
-      </button>
+
       <button 
         className={`tab-btn ${state.activeTab === 'merges' ? 'active' : ''}`} 
         onClick={() => setTab('merges')}
