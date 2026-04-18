@@ -33,3 +33,15 @@ build/
 # IDE
 .vscode/
 .idea/
+
+# runtime database
+*.db
+flowstate.db
+
+# audio files
+backend/audio/
+*.mp3
+*.wav
+
+# session runtime
+flowstate/
