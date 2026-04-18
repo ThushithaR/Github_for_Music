@@ -7,6 +7,7 @@ export interface KeyTimelineChunk {
 export interface Clip {
   id: string;
   name: string;
+  audioUrl?: string;
   bpm: number;
   key: string;
   mood: string;
@@ -50,6 +51,7 @@ export interface AppState {
 export interface PendingCapture {
   id: string;
   name: string;
+  audioUrl?: string;
   bpm: number;
   key: string;
   mood: string;

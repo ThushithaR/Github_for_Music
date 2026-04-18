@@ -31,38 +31,96 @@ export function useGoodwinsunInternal() {
   const [cmTags, setCmTags] = useState<string[]>([]);
   const [toasts, setToasts] = useState<string[]>([]);
   const [capturing, setCapturing] = useState(false);
+  const hydratedRef = useRef(false);
+
+  // Toasts
+  const showToast = useCallback((message: string) => {
+    setToasts(prev => [...prev, message]);
+    setTimeout(() => {
+      setToasts(prev => prev.slice(1));
+    }, 2600);
+  }, []);
   
   const bufferStartRef = useRef(Date.now());
   const cpPhaseRef = useRef(0);
+  const playbackAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Load from localStorage on mount
+  const formatDuration = useCallback((seconds: number): string => {
+    const total = Math.max(0, Math.round(seconds || 0));
+    const mins = Math.floor(total / 60);
+    const secs = total % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }, []);
+
+  const stopPlayback = useCallback(() => {
+    if (playbackAudioRef.current) {
+      playbackAudioRef.current.pause();
+      playbackAudioRef.current.currentTime = 0;
+      playbackAudioRef.current = null;
+    }
+    setState(prev => ({ ...prev, playingId: null }));
+  }, []);
+
+  const playClip = useCallback((clipId: string, rateOverride?: number) => {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (!clip || !clip.audioUrl) {
+      showToast('No audio source found for this fragment');
+      return;
+    }
+
+    if (playbackAudioRef.current) {
+      playbackAudioRef.current.pause();
+      playbackAudioRef.current.currentTime = 0;
+    }
+
+    const player = new Audio(clip.audioUrl);
+    player.playbackRate = rateOverride ?? state.playbackRate;
+    player.onended = () => {
+      playbackAudioRef.current = null;
+      setState(prev => ({ ...prev, playingId: null }));
+    };
+    player.onerror = () => {
+      playbackAudioRef.current = null;
+      setState(prev => ({ ...prev, playingId: null }));
+      showToast('Failed to play audio for this fragment');
+    };
+
+    playbackAudioRef.current = player;
+    setState(prev => ({ ...prev, playingId: clipId }));
+    player.play().catch(() => {
+      playbackAudioRef.current = null;
+      setState(prev => ({ ...prev, playingId: null }));
+      showToast('Browser blocked autoplay. Tap play again.');
+    });
+  }, [state.clips, state.playbackRate, showToast]);
+
+  // Load from localStorage after hydration so SSR and client initial render match.
   useEffect(() => {
     try {
       const savedClips = localStorage.getItem('gs_clips');
-      const savedSessIdx = localStorage.getItem('gs_sessIdx');
       const savedBanner = localStorage.getItem('gs_banner');
-      
+
       if (savedClips) {
         setState(prev => ({
           ...prev,
-          clips: JSON.parse(savedClips).map((c: Clip) => ({ ...c, children: [...c.children] }))
+          clips: JSON.parse(savedClips).map((c: Clip) => ({ ...c, children: [...c.children] })),
         }));
       }
-      
-      if (savedSessIdx) {
-        // Set session index from saved data
-      }
-      
+
       if (savedBanner === 'true') {
         setState(prev => ({ ...prev, bannerDismissed: true }));
       }
     } catch (error) {
       console.error('Error loading saved data:', error);
+    } finally {
+      hydratedRef.current = true;
     }
   }, []);
 
   // Save to localStorage
   const saveToDisk = useCallback(() => {
+    if (!hydratedRef.current) return;
+
     try {
       localStorage.setItem('gs_clips', JSON.stringify(state.clips));
       localStorage.setItem('gs_banner', state.bannerDismissed.toString());
@@ -74,7 +132,7 @@ export function useGoodwinsunInternal() {
   // Auto-save when clips change
   useEffect(() => {
     saveToDisk();
-  }, [state.clips, saveToDisk]);
+  }, [state.clips, state.bannerDismissed, saveToDisk]);
 
   // View management
   const setView = useCallback((view: ViewType) => {
@@ -96,41 +154,73 @@ export function useGoodwinsunInternal() {
     
     setCapturing(true);
     
-    const blob = customBlob || audio.getBufferedBlob();
-    let bpm = randomInt(70, 145);
-    let key = randomPick(['A min', 'C maj', 'G maj', 'E min', 'D maj', 'F maj', 'B min', 'Bb maj', 'F# min']);
-    let mood = randomPick(['melancholic', 'dark', 'energetic', 'bright', 'chill', 'upbeat', 'tense']);
+    const blob = customBlob || await audio.getBufferedBlobFresh();
+    let backendId: string | undefined;
+    let bpm = 0;
+    let key = 'Unknown';
+    let mood = 'neutral';
     let keyTimeline: KeyTimelineChunk[] = [];
+    let capturedAudioUrl: string | undefined;
+    let durationLabel = '0:00';
     
     if (blob) {
       try {
-        const formData = new FormData();
-        formData.append('file', blob, 'capture.webm');
-        
-        const res = await fetch('http://localhost:8000/api/analyze', {
-          method: 'POST',
-          body: formData,
-        });
-        
+        const callCaptureApi = async (url: string) => {
+          const formData = new FormData();
+          const mime = (blob.type || '').toLowerCase();
+          const filename = mime.includes('wav') ? 'capture.wav' : 'capture.webm';
+          formData.append('file', blob, filename);
+          return fetch(url, { method: 'POST', body: formData });
+        };
+
+        const res = await callCaptureApi('/api/capture');
+
         if (res.ok) {
           const data = await res.json();
-          bpm = data.bpm || bpm;
-          key = data.key || key;
+          backendId = data.id || undefined;
+          bpm = typeof data.bpm === 'number' ? data.bpm : bpm;
+          key = data.musical_key || data.key || key;
           mood = data.mood || mood;
           keyTimeline = data.key_timeline || [];
+
+          if (data.audio_url) {
+            capturedAudioUrl = data.audio_url;
+          }
+
+          if (typeof data.duration === 'number') {
+            durationLabel = formatDuration(data.duration);
+          } else {
+            const bufferedDuration = audio.getBufferedDurationSeconds();
+            if (bufferedDuration > 0) {
+              durationLabel = formatDuration(bufferedDuration);
+            }
+          }
+
+          if (!backendId) {
+            showToast('Capture failed: backend did not return an ID');
+            setCapturing(false);
+            return;
+          }
+        } else {
+          const errorText = await res.text();
+          console.error('Capture API failed', res.status, errorText);
+          showToast(`Capture API error (${res.status})`);
+          setCapturing(false);
+          return;
         }
       } catch (err) {
         console.error('Failed to communicate with analysis API', err);
+        showToast('Failed to communicate with analysis API');
+        setCapturing(false);
+        return;
       }
     } else {
-      // No blob captured (mic off), simulating 1.5s delay
-      await new Promise(r => setTimeout(r, 1500));
+      showToast('Buffer is empty. Keep RECORD on and try again.');
+      setCapturing(false);
+      return;
     }
     
-    let newId = generateId();
-    while (state.clips.find(c => c.id === newId)) {
-      newId = generateId();
-    }
+    const newId = backendId || generateId();
     
     const newCapture: PendingCapture = {
       id: newId,
@@ -144,14 +234,15 @@ export function useGoodwinsunInternal() {
       type: 'root',
       parent: null,
       children: [],
-      duration: blob ? `0:30` : `0:${randomInt(15, 55)}`, // Simple default
+      duration: durationLabel,
+      audioUrl: capturedAudioUrl,
       keyTimeline,
     };
     
     setPendingCapture(newCapture);
     setCapturing(false);
     openCaptureModal(newCapture);
-  }, [capturing, state.clips, audio, openCaptureModal]);
+  }, [capturing, state.clips, audio, openCaptureModal, formatDuration, showToast]);
 
   const closeCaptureModal = useCallback(() => {
     setCaptureModalVisible(false);
@@ -323,11 +414,12 @@ export function useGoodwinsunInternal() {
   }, [state.mergeMode, state.mergeSourceId, state.clips]);
 
   const togglePlay = useCallback((id: string) => {
-    setState(prev => ({
-      ...prev,
-      playingId: prev.playingId === id ? null : id
-    }));
-  }, []);
+    if (state.playingId === id) {
+      stopPlayback();
+      return;
+    }
+    playClip(id);
+  }, [state.playingId, playClip, stopPlayback]);
 
   const closeDetail = useCallback(() => {
     if (state.mergeMode) {
@@ -359,14 +451,6 @@ export function useGoodwinsunInternal() {
   // Shortcuts
   const toggleShortcuts = useCallback(() => {
     setShortcutsVisible(prev => !prev);
-  }, []);
-
-  // Toasts
-  const showToast = useCallback((message: string) => {
-    setToasts(prev => [...prev, message]);
-    setTimeout(() => {
-      setToasts(prev => prev.slice(1));
-    }, 2600);
   }, []);
 
   // Detail panel functions
@@ -546,15 +630,19 @@ export function useGoodwinsunInternal() {
   }, [state.selectedId, state.clips, showToast]);
 
   const changeRate = useCallback((rate: number) => {
+    if (playbackAudioRef.current) {
+      playbackAudioRef.current.playbackRate = rate;
+    }
     setState(prev => ({ ...prev, playbackRate: rate }));
   }, []);
 
   const toggleDetailPlay = useCallback((id: string) => {
-    setState(prev => ({
-      ...prev,
-      playingId: prev.playingId === id ? null : id
-    }));
-  }, []);
+    if (state.playingId === id) {
+      stopPlayback();
+      return;
+    }
+    playClip(id);
+  }, [state.playingId, playClip, stopPlayback]);
 
   const copyId = useCallback((id: string) => {
     navigator.clipboard.writeText(id);
@@ -633,6 +721,15 @@ export function useGoodwinsunInternal() {
     animateCaptureWaveform();
     animateBuffer();
   }, [animateCaptureWaveform, animateBuffer]);
+
+  useEffect(() => {
+    return () => {
+      if (playbackAudioRef.current) {
+        playbackAudioRef.current.pause();
+        playbackAudioRef.current = null;
+      }
+    };
+  }, []);
 
   return {
     // State

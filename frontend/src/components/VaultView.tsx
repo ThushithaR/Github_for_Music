@@ -33,25 +33,24 @@ export default function VaultView() {
         <div className="capture-btn-wrap">
           <button 
             id="btn-record-manual" 
-            className={audio.isRecording ? 'capturing' : ''}
-            onClick={async () => {
-              if (audio.isRecording) {
-                 const blob = await audio.stopRecordingAndGetBlob();
-                 if (blob) handleCapture(blob);
+            className={audio.isListening ? 'capturing' : ''}
+            onClick={() => {
+              if (audio.isListening) {
+                audio.stopListening();
               } else {
-                 audio.startRecording();
+                audio.startListening();
               }
             }}
             disabled={capturing}
             style={{ 
               height: '32px', padding: '0 12px', borderRadius: '3px',
               fontFamily: 'var(--font-mono)', fontSize: '10px', 
-              backgroundColor: audio.isRecording ? '#E53E3E' : 'transparent', 
+              backgroundColor: audio.isListening ? '#E53E3E' : 'transparent', 
               border: '1px solid var(--border)', cursor: 'pointer',
-              color: audio.isRecording ? '#fff' : 'var(--text-secondary)'
+              color: audio.isListening ? '#fff' : 'var(--text-secondary)'
             }}
           >
-            {audio.isRecording ? '🔴 STOP & SAVE' : '⏺ RECORD'}
+            {audio.isListening ? '⏹ RECORD ON' : '⏺ RECORD'}
           </button>
         </div>
 
@@ -87,7 +86,7 @@ export default function VaultView() {
             id="btn-capture" 
             className={capturing ? 'capturing' : ''}
             onClick={() => handleCapture()}
-            disabled={capturing || (!audio.isListening && !audio.isRecording)}
+            disabled={capturing || !audio.isListening}
           >
             <svg id="capture-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="12" cy="12" r="8"/>
@@ -99,14 +98,14 @@ export default function VaultView() {
         
         <div id="capture-waveform">
           {Array.from({length: 40}, (_, i) => (
-            <div key={i} className="wv-bar" style={{height: `${Math.random() * 15 + 2}px`, background: audio.isRecording ? '#E53E3E' : (audio.isListening ? 'var(--amber)' : 'var(--text-muted)')}}></div>
+            <div key={i} className="wv-bar" style={{height: `${3 + ((i * 7) % 13)}px`, background: audio.isRecording ? '#E53E3E' : (audio.isListening ? 'var(--amber)' : 'var(--text-muted)')}}></div>
           ))}
         </div>
         <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
           <div id="live-chip" onClick={() => !audio.isListening && audio.startListening()} style={{cursor: 'pointer'}}>
             <div className="live-dot" style={{ backgroundColor: audio.isListening ? 'var(--amber)' : 'var(--text-muted)' }}></div>
             {audio.isListening ? 'LIVE · BUFFERING 60s' : 'MIC OFF (CLICK TO ENABLE)'}
-            <div className="lctt">Circular 60-second audio buffer. Always recording.<br/>Press Capture to save.</div>
+            <div className="lctt">Circular 60-second audio buffer. RECORD keeps the mic open.<br/>Press Capture to save a snapshot.</div>
           </div>
           {audio.isListening && (
             <div id="buffer-bar-wrap">
@@ -139,7 +138,7 @@ export default function VaultView() {
             <line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
         </button>
-        <div className="wb-title">GOODWINSUN is always listening.</div>
+        <div className="wb-title">FlowState is always listening.</div>
         <div className="wb-steps">
           <div className="wb-step"><span>01.</span>Press <strong style={{color: 'var(--amber)'}}>CAPTURE</strong> or hit <strong style={{color: 'var(--amber)'}}>C</strong> to save the last 30 seconds</div>
           <div className="wb-step"><span>02.</span>Name your fragment and review the playback</div>

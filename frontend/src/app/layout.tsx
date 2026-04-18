@@ -6,8 +6,8 @@ import Providers from './providers';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'GOODWINSUN - Ambient Capture & Version Control',
-  description: 'AI-driven ambient capture and version control for musicians.',
+  title: 'FlowState - Ambient Capture & Version Control',
+  description: 'Ambient capture and version control for musicians.',
 };
 
 export default function RootLayout({

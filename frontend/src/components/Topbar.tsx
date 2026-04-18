@@ -26,7 +26,7 @@ export default function Topbar({
 
   return (
     <header id="topbar">
-      <span id="topbar-brand">GOODWINSUN</span>
+      <span id="topbar-brand">FLOWSTATE</span>
       <div id="topbar-divider"></div>
       <span id="topbar-view">{VIEW_NAMES[currentView]}</span>
       <div id="topbar-spacer"></div>

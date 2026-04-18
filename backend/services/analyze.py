@@ -5,22 +5,44 @@ import numpy as np
 import subprocess
 import tempfile
 import os
+import shutil
 import traceback
+
+
+def _resolve_ffmpeg_executable() -> str:
+    env_path = os.environ.get("GOODWINSUN_FFMPEG")
+    if env_path:
+        return env_path
+
+    for candidate in ("ffmpeg", "ffmpeg.exe"):
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+
+    bundled = r"C:\ffmpeg\ffmpeg-8.1-full_build\bin\ffmpeg.exe"
+    if os.path.exists(bundled):
+        return bundled
+
+    raise FileNotFoundError(
+        "FFmpeg executable not found. Set GOODWINSUN_FFMPEG or add ffmpeg to PATH."
+    )
 
 
 # ---------- AUDIO NORMALIZATION (FFmpeg) ----------
 def normalize_audio(input_path):
     output_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+    ffmpeg_executable = _resolve_ffmpeg_executable()
 
     print("\n===== DEBUG =====")
     print("Input path:", input_path)
     print("Exists:", os.path.exists(input_path))
+    print("FFmpeg:", ffmpeg_executable)
 
     if os.path.exists(input_path):
         print("Size:", os.path.getsize(input_path))
 
     command = [
-    r"C:\ffmpeg\ffmpeg-8.1-full_build\bin\ffmpeg.exe",
+    ffmpeg_executable,
     "-y",
     "-i", input_path,
     "-vn",              # ignore video streams
