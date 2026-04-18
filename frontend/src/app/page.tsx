@@ -9,6 +9,7 @@ import SearchView from '@/components/SearchView';
 import TimelineView from '@/components/TimelineView';
 import DetailPanel from '@/components/DetailPanel';
 import CaptureModal from '@/components/CaptureModal';
+import MergeModal from '@/components/MergeModal';
 import ShortcutsOverlay from '@/components/ShortcutsOverlay';
 import ToastContainer from '@/components/ToastContainer';
 import { useGoodwinsun } from '@/context/GoodwinsunContext';
@@ -103,6 +104,7 @@ export default function Home() {
       />
 
       <CaptureModal />
+      <MergeModal />
       <ShortcutsOverlay />
       <ToastContainer toasts={toasts} />
     </div>

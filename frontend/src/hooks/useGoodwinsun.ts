@@ -6,6 +6,11 @@ import { AppState, Clip, ViewType, TabType, PendingCapture, KeyTimelineChunk } f
 import { DEFAULT_CLIPS, CHIP_DEFINITIONS, VIEW_NAMES } from '@/utils/constants';
 import { randomPick, randomInt, generateId, getNextSession, getWaveform } from '@/utils/helpers';
 
+const AUDIO_PATHS: Record<string, string> = {
+  'W1V2': '/maco_mamuko.wav',
+  'B4H1': '/bilahari.wav',
+};
+
 const initialState: AppState = {
   clips: DEFAULT_CLIPS.map(c => ({ ...c, children: [...c.children] })),
   activeTab: 'all',
@@ -20,6 +25,8 @@ const initialState: AppState = {
   userCaptures: 0,
   playbackRate: 1.0,
   isEditing: false,
+  mergeTargetId: null,
+  isMergeModalOpen: false,
 };
 
 export function useGoodwinsunInternal() {
@@ -33,8 +40,134 @@ export function useGoodwinsunInternal() {
   const [capturing, setCapturing] = useState(false);
   const [playbackSequence, setPlaybackSequence] = useState<string[]>([]);
   
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
   const bufferStartRef = useRef(Date.now());
   const cpPhaseRef = useRef(0);
+  const audioInstanceRef = useRef<HTMLAudioElement | null>(null);
+  const audioInstanceRef2 = useRef<HTMLAudioElement | null>(null);
+
+  // Toasts
+  const showToast = useCallback((message: string) => {
+    setToasts(prev => [...prev, message]);
+    setTimeout(() => {
+      setToasts(prev => prev.slice(1));
+    }, 2600);
+  }, []);
+
+  // Audio Playback Orchestrator
+  useEffect(() => {
+    const pid = state.playingId;
+    
+    // Stop and cleanup ALL existing audios
+    if (audioInstanceRef.current) {
+        audioInstanceRef.current.pause();
+        audioInstanceRef.current.src = "";
+        audioInstanceRef.current = null;
+    }
+    if (audioInstanceRef2.current) {
+        audioInstanceRef2.current.pause();
+        audioInstanceRef2.current.src = "";
+        audioInstanceRef2.current = null;
+    }
+
+    if (!pid) return;
+
+    const clip = state.clips.find(c => c.id === pid);
+    if (!clip) return;
+
+    if (clip.type === 'merge' && clip.parent) {
+        const parents = clip.parent.split(' + ').map(s => s.trim());
+        const path1 = AUDIO_PATHS[parents[0]];
+        const path2 = AUDIO_PATHS[parents[1]];
+        
+        if (clip.mergeStrategy === 'overlap') {
+            // Simultaneous playback
+            const a1 = new Audio(path1 || "");
+            const a2 = new Audio(path2 || "");
+            a1.playbackRate = state.playbackRate;
+            a2.playbackRate = state.playbackRate;
+            
+            if (path1) a1.play().catch(e => console.error(e));
+            if (path2) a2.play().catch(e => console.error(e));
+            
+            // Revert state when LONGER one ends
+            const durations = [path1 ? 1 : 0, path2 ? 1 : 0];
+            let endedCount = 0;
+            const totalToWait = durations.reduce((a, b) => a + b, 0);
+            
+            const handleEnded = () => {
+                endedCount++;
+                if (endedCount >= totalToWait) setState(prev => ({ ...prev, playingId: null }));
+            };
+            
+            if (path1) a1.onended = handleEnded;
+            if (path2) a2.onended = handleEnded;
+            
+            audioInstanceRef.current = a1;
+            audioInstanceRef2.current = a2;
+        } else {
+            // Sequential playback
+            const a1 = new Audio(path1 || "");
+            a1.playbackRate = state.playbackRate;
+            
+            if (path1) {
+                a1.play().catch(e => {
+                    console.error(e);
+                    setState(prev => ({ ...prev, playingId: null }));
+                });
+                
+                a1.onended = () => {
+                    if (path2) {
+                        const a2 = new Audio(path2);
+                        a2.playbackRate = state.playbackRate;
+                        a2.play().catch(e => console.error(e));
+                        a2.onended = () => setState(prev => ({ ...prev, playingId: null }));
+                        audioInstanceRef.current = a2;
+                    } else {
+                        setState(prev => ({ ...prev, playingId: null }));
+                    }
+                };
+                audioInstanceRef.current = a1;
+            } else if (path2) {
+                const a2 = new Audio(path2);
+                a2.playbackRate = state.playbackRate;
+                a2.play().catch(e => {
+                    console.error(e);
+                    setState(prev => ({ ...prev, playingId: null }));
+                });
+                a2.onended = () => setState(prev => ({ ...prev, playingId: null }));
+                audioInstanceRef.current = a2;
+            } else {
+                setState(prev => ({ ...prev, playingId: null }));
+            }
+        }
+    } else {
+        const path = clip.audioPath || AUDIO_PATHS[pid];
+        if (path) {
+            console.log(`[AudioOrchestrator] Playing: ${path} for clip ${pid}`);
+            const audio = new Audio(path);
+            audio.playbackRate = stateRef.current.playbackRate;
+            audio.play().catch(err => {
+                console.error("Playback failed:", err);
+                setState(prev => ({ ...prev, playingId: null }));
+            });
+            audio.onended = () => {
+                setState(prev => ({ ...prev, playingId: null }));
+            };
+            audioInstanceRef.current = audio;
+        } else {
+            console.warn(`No audio path found for clip ${pid}`);
+            setState(prev => ({ ...prev, playingId: null }));
+        }
+    }
+  }, [state.playingId]);
+
+  // Sync Playback Rate
+  useEffect(() => {
+    if (audioInstanceRef.current) audioInstanceRef.current.playbackRate = state.playbackRate;
+    if (audioInstanceRef2.current) audioInstanceRef2.current.playbackRate = state.playbackRate;
+  }, [state.playbackRate]);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -76,6 +209,15 @@ export function useGoodwinsunInternal() {
   useEffect(() => {
     saveToDisk();
   }, [state.clips, saveToDisk]);
+
+  const selectClip = useCallback((id: string) => {
+    // Handle merge mode
+    if (state.mergeMode && state.mergeSourceId && state.mergeSourceId !== id) {
+      setState(prev => ({ ...prev, mergeTargetId: id, isMergeModalOpen: true }));
+      return;
+    }
+    setState(prev => ({ ...prev, selectedId: id, isEditing: false }));
+  }, [state.mergeMode, state.mergeSourceId]);
 
   // View management
   const setView = useCallback((view: ViewType) => {
@@ -145,8 +287,9 @@ export function useGoodwinsunInternal() {
       type: 'root',
       parent: null,
       children: [],
-      duration: blob ? `0:30` : `0:${randomInt(15, 55)}`, // Simple default
+      duration: blob ? `0:${Math.floor(blob.size / 100000)}` : `0:${randomInt(15, 55)}`, // Simulated duration based on size if blob exists
       keyTimeline,
+      audioPath: blob ? URL.createObjectURL(blob) : undefined,
     };
     
     setPendingCapture(newCapture);
@@ -216,8 +359,7 @@ export function useGoodwinsunInternal() {
   }, []);
 
   const handleSemanticSearch = useCallback((query: string) => {
-    // For now, just update the query - in real implementation this would search
-    console.log('Semantic search:', query);
+    setState(prev => ({ ...prev, topbarQuery: query }));
   }, []);
 
   const triggerSuggestion = useCallback((suggestion: string) => {
@@ -282,46 +424,48 @@ export function useGoodwinsunInternal() {
       merges: clips.filter(c => c.type === 'merge').length,
     };
   }, [state.clips]);
+  
 
-  // Clip selection and playback
-  const selectClip = useCallback((id: string) => {
-    // Handle merge mode
-    if (state.mergeMode && state.mergeSourceId && state.mergeSourceId !== id) {
-      const sourceClip = state.clips.find(c => c.id === state.mergeSourceId);
-      const targetClip = state.clips.find(c => c.id === id);
-      
-      if (sourceClip && targetClip) {
-        const mergedClip: Clip = {
-          id: generateId(),
-          name: `${sourceClip.name} + ${targetClip.name}`,
-          bpm: Math.round((sourceClip.bpm + targetClip.bpm) / 2),
-          key: sourceClip.key,
-          mood: sourceClip.mood,
-          instrument: `${sourceClip.instrument} + ${targetClip.instrument}`,
-          session: sourceClip.session,
-          ago: 'just now',
-          type: 'merge',
-          parent: `${sourceClip.id} + ${targetClip.id}`,
-          children: [],
-          duration: `0:${Math.floor((parseInt(sourceClip.duration.split(':')[1]) + parseInt(targetClip.duration.split(':')[1])) / 2)}`,
-          tags: [...new Set([...sourceClip.tags, ...targetClip.tags])],
-        };
-        
-        setState(prev => ({
-          ...prev,
-          clips: [mergedClip, ...prev.clips],
-          mergeMode: false,
-          mergeSourceId: null,
-          selectedId: mergedClip.id,
-        }));
-        
-        showToast(`Created merge: ${mergedClip.id}`);
-        return;
-      }
+  const confirmMerge = useCallback((strategy: 'sequential' | 'overlap') => {
+    if (!state.mergeSourceId || !state.mergeTargetId) return;
+    const sourceClip = state.clips.find(c => c.id === state.mergeSourceId);
+    const targetClip = state.clips.find(c => c.id === state.mergeTargetId);
+    if (sourceClip && targetClip) {
+      const mergedClip: Clip = {
+        id: generateId(),
+        name: `${sourceClip.name} + ${targetClip.name}`,
+        bpm: Math.round((sourceClip.bpm + targetClip.bpm) / 2),
+        key: sourceClip.key,
+        mood: sourceClip.mood,
+        instrument: `${sourceClip.instrument} + ${targetClip.instrument}`,
+        session: sourceClip.session,
+        ago: 'just now',
+        type: 'merge',
+        parent: `${sourceClip.id} + ${targetClip.id}`,
+        children: [],
+        duration: strategy === 'sequential' 
+            ? `0:${parseInt(sourceClip.duration.split(':')[1]) + parseInt(targetClip.duration.split(':')[1])}`
+            : sourceClip.duration,
+        tags: [...new Set([...sourceClip.tags, ...targetClip.tags])],
+        mergeStrategy: strategy,
+      };
+      setState(prev => ({
+        ...prev,
+        clips: [mergedClip, ...prev.clips],
+        mergeMode: false,
+        mergeSourceId: null,
+        mergeTargetId: null,
+        isMergeModalOpen: false,
+        selectedId: mergedClip.id,
+      }));
+      showToast(`Created ${strategy} merge: ${mergedClip.id}`);
     }
-    
-    setState(prev => ({ ...prev, selectedId: id, isEditing: false }));
-  }, [state.mergeMode, state.mergeSourceId, state.clips]);
+  }, [state.mergeSourceId, state.mergeTargetId, state.clips, showToast]);
+
+  const cancelMergeModal = useCallback(() => {
+    setState(prev => ({ ...prev, isMergeModalOpen: false, mergeTargetId: null }));
+  }, []);
+
 
   const togglePlay = useCallback((id: string) => {
     setState(prev => ({
@@ -362,13 +506,6 @@ export function useGoodwinsunInternal() {
     setShortcutsVisible(prev => !prev);
   }, []);
 
-  // Toasts
-  const showToast = useCallback((message: string) => {
-    setToasts(prev => [...prev, message]);
-    setTimeout(() => {
-      setToasts(prev => prev.slice(1));
-    }, 2600);
-  }, []);
 
   // Detail panel functions
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
@@ -467,8 +604,16 @@ export function useGoodwinsunInternal() {
     setPlaybackSequence(path);
     for (const id of path) {
       setState(prev => ({ ...prev, playingId: id }));
-      // 3 seconds per node simulated playback
-      await new Promise(r => setTimeout(r, 3000));
+      
+      // Wait for audio to finish (playingId becomes null via audio.onended)
+      await new Promise<void>(resolve => {
+        const interval = setInterval(() => {
+          if (stateRef.current.playingId === null) {
+            clearInterval(interval);
+            resolve();
+          }
+        }, 100);
+      });
     }
     setState(prev => ({ ...prev, playingId: null }));
     setPlaybackSequence([]);
@@ -598,6 +743,7 @@ export function useGoodwinsunInternal() {
       duration: src.duration,
       tags: [...src.tags],
       isNew: true,
+      audioPath: src.audioPath || AUDIO_PATHS[src.id],
     };
 
     setState(prev => {
@@ -646,6 +792,7 @@ export function useGoodwinsunInternal() {
       children: [],
       tags: [...src.tags],
       isNew: true,
+      audioPath: src.audioPath || AUDIO_PATHS[src.id],
       x: src.x !== undefined ? src.x + 150 : undefined,
       y: src.y !== undefined ? src.y + 80 : undefined,
     };
@@ -673,14 +820,14 @@ export function useGoodwinsunInternal() {
   }, [state.selectedId, state.clips, showToast]);
 
   // Fork any clip by ID directly (used by MapView context menu — no selectedId dependency)
-  const forkClipDirect = useCallback((sourceId: string) => {
+  const forkClipDirect = useCallback((sourceId: string, x?: number, y?: number, targetSession?: string) => {
     const src = state.clips.find(c => c.id === sourceId);
     if (!src) return null;
 
     let newId = generateId();
     while (state.clips.find(c => c.id === newId)) newId = generateId();
 
-    const newSession = `${src.session} fork`;
+    const newSession = targetSession !== undefined ? targetSession : `${src.session} fork`;
     const forkClip: Clip = {
       ...src,
       id: newId,
@@ -692,8 +839,9 @@ export function useGoodwinsunInternal() {
       children: [],
       tags: [...src.tags],
       isNew: true,
-      x: src.x !== undefined ? src.x + 160 : undefined,
-      y: src.y !== undefined ? src.y + 100 : undefined,
+      audioPath: src.audioPath || AUDIO_PATHS[src.id],
+      x: x !== undefined ? x : (src.x !== undefined ? src.x + 160 : undefined),
+      y: y !== undefined ? y : (src.y !== undefined ? src.y + 100 : undefined),
       customConnections: [],
     };
 
@@ -796,13 +944,13 @@ export function useGoodwinsunInternal() {
     const query = state.topbarQuery.toLowerCase().trim();
     if (query) {
       clips = clips.filter(c =>
-        c.id.toLowerCase().includes(query) ||
-        c.mood.toLowerCase().includes(query) ||
-        c.key.toLowerCase().includes(query) ||
-        String(c.bpm).includes(query) ||
-        c.instrument.toLowerCase().includes(query) ||
-        c.tags.some(t => t.toLowerCase().includes(query)) ||
-        c.session.toLowerCase().includes(query) ||
+        (c.id && c.id.toLowerCase().includes(query)) ||
+        (c.mood && c.mood.toLowerCase().includes(query)) ||
+        (c.key && c.key.toLowerCase().includes(query)) ||
+        (c.bpm !== undefined && String(c.bpm).includes(query)) ||
+        (c.instrument && c.instrument.toLowerCase().includes(query)) ||
+        (c.tags && c.tags.some(t => t.toLowerCase().includes(query))) ||
+        (c.session && c.session.toLowerCase().includes(query)) ||
         (c.name && c.name.toLowerCase().includes(query))
       );
     }
@@ -864,6 +1012,11 @@ export function useGoodwinsunInternal() {
     clearTopbarSearch,
     handleSemanticSearch,
     triggerSuggestion,
+
+    // Clip selection and playback
+    selectClip,
+    confirmMerge,
+    cancelMergeModal,
     
     // Tabs and filters
     setTab,
@@ -876,8 +1029,6 @@ export function useGoodwinsunInternal() {
     // Audio Hook properties exported for VaultView UI
     audio,
     
-    // Clip management
-    selectClip,
     togglePlay,
     closeDetail,
     getFilteredClips,

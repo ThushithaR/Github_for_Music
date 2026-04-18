@@ -10,7 +10,9 @@ export const DEFAULT_CLIPS: Clip[] = [
   { id: 'J4M7', name: 'Dusty Drums', bpm: 90, key: 'None', mood: 'chill', instrument: 'drums', session: 'Session D', ago: '3h ago', type: 'root', parent: null, children: [], duration: '1:00', tags: ['lofi', 'raw'] },
   { id: 'H1N5', name: 'Morning Dew', bpm: 72, key: 'G maj', mood: 'bright', instrument: 'acoustic guitar', session: 'Session E', ago: '30m ago', type: 'root', parent: null, children: [], duration: '0:45', tags: ['acoustic', 'bright'] },
   { id: 'S9V3', name: 'Neon Pulsar', bpm: 128, key: 'F# min', mood: 'energetic', instrument: 'synth', session: 'Session F', ago: '5h ago', type: 'root', parent: null, children: [], duration: '0:35', tags: ['electronic', 'driving'] },
-  { id: 'L8T4', name: 'Static Void', bpm: 60, key: 'None', mood: 'dark', instrument: 'noise generator', session: 'Session G', ago: '10h ago', type: 'root', parent: null, children: [], duration: '1:20', tags: ['ambient', 'experimental'] }
+  { id: 'L8T4', name: 'Static Void', bpm: 60, key: 'None', mood: 'dark', instrument: 'noise generator', session: 'Session G', ago: '10h ago', type: 'root', parent: null, children: [], duration: '1:20', tags: ['ambient', 'experimental'] },
+  { id: 'W1V2', name: 'Maco Mamuko', bpm: 115, key: 'G maj', mood: 'upbeat', instrument: 'vocals + beat', session: 'Session K', ago: 'just now', type: 'root', parent: null, children: [], duration: '3:05', tags: ['rhythmic', 'vocal'], audioPath: '/maco_mamuko.wav' },
+  { id: 'B4H1', name: 'Bilahari Raga', bpm: 92, key: 'C maj', mood: 'bright', instrument: 'classical strings', session: 'Session L', ago: 'just now', type: 'root', parent: null, children: [], duration: '4:12', tags: ['classical', 'instrumental'], audioPath: '/bilahari.wav' }
 ];
 
 export const CHIP_DEFINITIONS: ChipDefinition[] = [

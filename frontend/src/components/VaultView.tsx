@@ -275,13 +275,13 @@ export default function VaultView() {
                           </div>
                           <div className="clip-footer">
                             <span className="clip-time">{clip.ago} · {clip.duration}</span>
-                            <button className="clip-play-btn" onClick={(e) => { e.stopPropagation(); togglePlay(clip.id); }}>
+                            <button className="clip-play-btn" onClick={(e) => { e.stopPropagation(); togglePlay(clip.id); }} style={{ zIndex: 10, position: 'relative' }}>
                               {state.playingId === clip.id ? (
-                                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                                   <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
                                 </svg>
                               ) : (
-                                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                                   <polygon points="5 3 19 12 5 21 5 3"/>
                                 </svg>
                               )}

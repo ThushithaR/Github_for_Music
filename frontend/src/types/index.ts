@@ -23,6 +23,8 @@ export interface Clip {
   x?: number;
   y?: number;
   customConnections?: string[]; // IDs of other clips it connects to
+  mergeStrategy?: 'sequential' | 'overlap';
+  audioPath?: string;
 }
 
 export interface ChipDefinition {
@@ -48,6 +50,8 @@ export interface AppState {
   userCaptures: number;
   playbackRate: number;
   isEditing: boolean;
+  mergeTargetId: string | null;
+  isMergeModalOpen: boolean;
 }
 
 export interface PendingCapture {
@@ -64,6 +68,7 @@ export interface PendingCapture {
   children: [];
   duration: string;
   keyTimeline?: KeyTimelineChunk[];
+  audioPath?: string;
 }
 
 export interface GraphNode {

@@ -52,14 +52,9 @@ export default function MapView() {
   } = useGoodwinsun();
 
   // ── canvas transform ──────────────────────────────────────────────────────
-  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // ── pan state ─────────────────────────────────────────────────────────────
-  const isPanningRef = useRef(false);
-  const panStartRef = useRef({ mx: 0, my: 0, tx: 0, ty: 0 });
-  const spaceHeldRef = useRef(false);
 
   // ── node drag ─────────────────────────────────────────────────────────────
   const [draggingNode, setDraggingNode] = useState<string | null>(null);
@@ -158,86 +153,24 @@ export default function MapView() {
   };
   const isPathNode = (id: string) => playbackSequence.includes(id);
 
-  // ── coordinate helpers ───────────────────────────────────────────────────
   const screenToSVG = useCallback((clientX: number, clientY: number) => {
     if (!containerRef.current) return { x: 0, y: 0 };
     const rect = containerRef.current.getBoundingClientRect();
     return {
-      x: (clientX - rect.left - transform.x) / transform.scale,
-      y: (clientY - rect.top - transform.y) / transform.scale,
+      x: clientX - rect.left + containerRef.current.scrollLeft,
+      y: clientY - rect.top + containerRef.current.scrollTop,
     };
-  }, [transform]);
-
-  // ── keyboard space ────────────────────────────────────────────────────────
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && e.target === document.body) {
-        e.preventDefault();
-        spaceHeldRef.current = true;
-        if (containerRef.current) containerRef.current.style.cursor = 'grab';
-      }
-    };
-    const up = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        spaceHeldRef.current = false;
-        if (containerRef.current) containerRef.current.style.cursor = 'default';
-      }
-    };
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
-    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
   }, []);
 
-  // ── global mouse-up to end panning / dragging ─────────────────────────────
-  useEffect(() => {
-    const up = () => {
-      isPanningRef.current = false;
-      if (containerRef.current && !spaceHeldRef.current) {
-        containerRef.current.style.cursor = 'default';
-      }
-    };
-    window.addEventListener('mouseup', up);
-    return () => window.removeEventListener('mouseup', up);
-  }, []);
 
-  // ── wheel zoom ────────────────────────────────────────────────────────────
-  const handleWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    const rect = containerRef.current!.getBoundingClientRect();
-    const ox = e.clientX - rect.left;
-    const oy = e.clientY - rect.top;
-    setTransform(prev => {
-      const newScale = Math.min(3, Math.max(0.2, prev.scale * factor));
-      return {
-        scale: newScale,
-        x: ox - (ox - prev.x) * (newScale / prev.scale),
-        y: oy - (oy - prev.y) * (newScale / prev.scale),
-      };
-    });
-  };
 
-  // ── canvas mouse events ───────────────────────────────────────────────────
+
   const handleCanvasMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
-    // middle click or space+left = pan
-    if (e.button === 1 || (e.button === 0 && spaceHeldRef.current)) {
-      e.preventDefault();
-      isPanningRef.current = true;
-      panStartRef.current = { mx: e.clientX, my: e.clientY, tx: transform.x, ty: transform.y };
-      if (containerRef.current) containerRef.current.style.cursor = 'grabbing';
-    }
     // dismiss context menu on any click
     if (ctxMenu) setCtxMenu(null);
   };
 
   const handleCanvasMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (isPanningRef.current) {
-      const dx = e.clientX - panStartRef.current.mx;
-      const dy = e.clientY - panStartRef.current.my;
-      setTransform(prev => ({ ...prev, x: panStartRef.current.tx + dx, y: panStartRef.current.ty + dy }));
-      return;
-    }
-
     if (draggingNode) {
       const pos = screenToSVG(e.clientX, e.clientY);
       updateClipPosition(draggingNode, pos.x - NW / 2, pos.y - NH / 2);
@@ -246,11 +179,6 @@ export default function MapView() {
   };
 
   const handleCanvasMouseUp = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (isPanningRef.current) {
-      isPanningRef.current = false;
-      if (containerRef.current) containerRef.current.style.cursor = spaceHeldRef.current ? 'grab' : 'default';
-      return;
-    }
 
     if (draggingNode) {
       const pos = screenToSVG(e.clientX, e.clientY);
@@ -441,10 +369,11 @@ export default function MapView() {
   // ── context menu fork ─────────────────────────────────────────────────────
   const handleContextFork = () => {
     if (!ctxMenu) return;
-    // forkClipDirect creates the fork and adds it to the vault without navigation
-    forkClipDirect(ctxMenu.clipId);
+    const pos = screenToSVG(ctxMenu.x, ctxMenu.y);
+    // Fork in-place (SVG coordinates) and without an assigned session
+    const newId = forkClipDirect(ctxMenu.clipId, pos.x, pos.y, '');
+    if (newId) selectClip(newId);
     setCtxMenu(null);
-    // stay on the map — the new node will auto-appear once clips update
   };
 
   const handleContextConnect = () => {
@@ -541,16 +470,7 @@ export default function MapView() {
 
         <div style={{ flex: 1 }} />
 
-        {/* zoom */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--text-muted)' }}>
-          <button onClick={() => setTransform(p => ({ ...p, scale: Math.min(3, p.scale * 1.2) }))}
-            style={{ width: 24, height: 24, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-mid)', borderRadius: 4, color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 14 }}>+</button>
-          <span style={{ minWidth: 36, textAlign: 'center' }}>{Math.round(transform.scale * 100)}%</span>
-          <button onClick={() => setTransform(p => ({ ...p, scale: Math.max(0.2, p.scale * 0.8) }))}
-            style={{ width: 24, height: 24, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-mid)', borderRadius: 4, color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 14 }}>−</button>
-          <button onClick={() => setTransform({ x: 0, y: 0, scale: 1 })}
-            style={{ height: 24, padding: '0 8px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-mid)', borderRadius: 4, color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em' }}>RESET</button>
-        </div>
+        <div style={{ flex: 1 }} />
 
         <div style={{ width: 1, height: 24, background: 'var(--border)' }} />
 
@@ -590,8 +510,8 @@ export default function MapView() {
       {/* ── canvas ──────────────────────────────────────────────────────── */}
       <div
         ref={containerRef}
-        style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor: getCursor() }}
-        onWheel={handleWheel}
+        className="map-scroll-container"
+        style={{ flex: 1, position: 'relative', overflow: 'auto', cursor: getCursor() }}
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
@@ -600,11 +520,10 @@ export default function MapView() {
         {/* transformed SVG layer */}
         <svg
           ref={svgRef}
+          width="4000"
+          height="3000"
           style={{
             position: 'absolute', top: 0, left: 0,
-            width: '100%', height: '100%',
-            transformOrigin: '0 0',
-            transform: `translate(${transform.x}px,${transform.y}px) scale(${transform.scale})`,
             userSelect: 'none',
           }}
         >
@@ -766,16 +685,6 @@ export default function MapView() {
           >
             <div style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 2 }}>{hoverInfo.clip.name || hoverInfo.clip.id}</div>
             <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 8 }}>{hoverInfo.clip.session} · {hoverInfo.clip.ago}</div>
-            {/* Mini waveform */}
-            <svg width={150} height={24} style={{ display: 'block', marginBottom: 6 }}>
-              <polyline
-                points={getWavePoints(hoverInfo.clip.id, 150, 24)}
-                fill="none"
-                stroke={typeColor(hoverInfo.clip.type)}
-                strokeWidth={1.5}
-                strokeOpacity={0.7}
-              />
-            </svg>
             <div style={{ display: 'flex', gap: 8, fontSize: 9, color: 'var(--text-muted)' }}>
               <span style={{ color: 'var(--amber)' }}>{hoverInfo.clip.bpm} BPM</span>
               <span>{hoverInfo.clip.key}</span>
@@ -797,6 +706,7 @@ export default function MapView() {
               fontFamily: 'var(--font-mono)',
             }}
             onClick={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
           >
             {[
               { label: '⎇  Fork from here', action: handleContextFork, color: '#3D7A5C' },
