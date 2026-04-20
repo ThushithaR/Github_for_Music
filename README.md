@@ -86,6 +86,8 @@ FlowState solves this by acting as an **ambient capture + version control layer 
 
 ## Architecture
 
+<img width="1807" height="821" alt="architecture" src="https://github.com/user-attachments/assets/df750ab8-4e42-4853-868a-d55c732f0a5f" />
+
 ```
 Frontend (Next.js)
   ├── Capture UI (buffer + trigger)
