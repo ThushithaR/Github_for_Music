@@ -12,7 +12,7 @@ Instead of losing ideas in scattered voice notes, FlowState continuously buffers
 
 ## Deployment
 
-The application is deployed and accessible here:
+The application (a slightly older version) is deployed and accessible here:
 
 **https://github-for-music.onrender.com/**
 
@@ -27,7 +27,8 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Make sure `ffmpeg` is installed on your system.
+1. Make sure `ffmpeg` is installed on your system.
+2. Please make use of an API key from **https://aistudio.google.com/** to make use of the semantic addressing feature of recorded audio clips.
 ---
 Use this link for a tutorial on how to install `ffmpeg`: **https://youtu.be/JR36oH35Fgg?si=6KanfIbI4freoG86**
 
@@ -37,7 +38,7 @@ Use this link for a tutorial on how to install `ffmpeg`: **https://youtu.be/JR36
 cd frontend
 npm install
 npm run dev
-```
+
 ## The Problem Being Solved
 
 Traditional recording workflows break creative flow:
