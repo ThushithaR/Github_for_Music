@@ -28,7 +28,7 @@ uvicorn main:app --reload
 ```
 
 1. Make sure `ffmpeg` is installed on your system.
-2. Please make use of an API key from **https://aistudio.google.com/** to make use of the semantic addressing feature of recorded audio clips.
+2. Please make use of an API key from **https://aistudio.google.com/** to unlock the semantic addressing feature of recorded audio clips.
 ---
 Use this link for a tutorial on how to install `ffmpeg`: **https://youtu.be/JR36oH35Fgg?si=6KanfIbI4freoG86**
 
