@@ -27,10 +27,8 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-1. Make sure `ffmpeg` is installed on your system.
----
-Use this link for a tutorial on how to install `ffmpeg`: **https://youtu.be/JR36oH35Fgg?si=6KanfIbI4freoG86**
----
+1. Make sure `ffmpeg` is installed on your system. 
+[Use this link for a tutorial on how to install `ffmpeg`](https://youtu.be/JR36oH35Fgg?si=6KanfIbI4freoG86**)
 2. Please make use of an API key from **https://aistudio.google.com/** to unlock the semantic addressing feature of recorded audio clips.
 ---
 ### Frontend
